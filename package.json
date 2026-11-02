@@ -1,0 +1,25 @@
+{
+  "name": "pm2-control-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --env-file=.env src/server.js",
+    "test": "node --test",
+    "setup": "node scripts/setup.js",
+    "preview": "node --env-file=.env scripts/preview.js",
+    "hash-password": "node scripts/hash-password.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.2",
+    "express-session": "^1.19.0",
+    "helmet": "^8.3.0",
+    "memorystore": "^1.6.8",
+    "pm2": "^7.1.1"
+  },
+  "description": "A login-protected Express dashboard and API for remote PM2 process control."
+}

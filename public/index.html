@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Process Room · PM2 Control</title>
+  <link rel="stylesheet" href="/styles.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <main id="login-view" class="login-layout">
+    <section class="login-story">
+      <a class="brand" href="/" aria-label="Process Room home"><span class="brand-mark">▥</span> Process Room</a>
+      <div class="story-body"><p class="eyebrow">YOUR OPERATIONS, IN VIEW</p><h1>A clear view.<br>A steady hand.</h1><p>Know what’s running. Keep things moving.<br>Your PM2 processes, in one quiet workspace.</p><div class="story-status"><span class="status-dot"></span> Built for deliberate control</div></div>
+      <p class="story-footer">PM2 CONTROL CENTER <span>01 / OPERATIONS</span></p>
+    </section>
+    <section class="login-panel"><div class="login-form-wrap"><p class="eyebrow">PRIVATE WORKSPACE</p><h2>Welcome back.</h2><p class="muted">Sign in to manage your processes.</p>
+      <form id="login-form"><label for="username">Username</label><input id="username" name="username" autocomplete="username" maxlength="80" required autofocus>
+        <div class="label-row"><label for="password">Password</label><button type="button" id="toggle-password" class="text-button" aria-controls="password" aria-pressed="false">Show password</button></div>
+        <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
+        <p id="login-error" class="error-message" role="alert"></p><button id="login-submit" class="button primary full" type="submit">Sign in <span aria-hidden="true">↗</span></button>
+      </form><p class="login-note">Access is limited to authorized operators.<br>Your session expires automatically.</p></div></section>
+  </main>
+  <div id="dashboard" class="workspace" hidden>
+    <aside class="sidebar"><a class="brand" href="/"><span class="brand-mark">▥</span> Process Room</a><p class="nav-caption">WORKSPACE</p><a class="nav-active" href="/" aria-current="page"><span aria-hidden="true">▦</span> Processes <span class="nav-count" id="nav-count">0</span></a><div class="sidebar-bottom"><span class="avatar" aria-hidden="true">OP</span><div><strong id="operator-name"></strong><small>Operator</small></div><button id="logout" class="logout" aria-label="Sign out" title="Sign out">↗</button></div></aside>
+    <main class="main-content"><header class="topbar"><span>Workspace <span class="breadcrumb">/</span> Processes</span><span class="private-label">◈ Private access</span></header>
+      <section class="page-content"><div class="page-heading"><div><p class="eyebrow">OPERATIONS OVERVIEW</p><h1>Processes<span class="mint">.</span></h1><p class="muted">A little visibility. A lot of peace of mind.</p></div><button id="refresh" class="button secondary"><span aria-hidden="true">↻</span> Refresh</button></div>
+        <div id="notice" class="notice" role="status" hidden></div>
+        <div class="metrics"><article class="metric"><p>Allowed processes</p><strong id="total-count">—</strong><span>Visible in this workspace</span></article><article class="metric"><p><span class="status-dot"></span> Online</p><strong id="online-count">—</strong><span>Up and running</span></article><article class="metric"><p>Memory in use</p><strong id="memory-total">—</strong><span>Across allowed processes</span></article></div>
+        <section class="process-section" aria-labelledby="process-heading"><div class="section-heading"><div><h2 id="process-heading">Your processes</h2><p id="last-updated">Waiting for the first update</p></div><span id="connection" class="connection">Connecting</span></div>
+          <div class="table-scroll"><table><thead><tr><th scope="col">Process</th><th scope="col">Status</th><th scope="col">CPU</th><th scope="col">Memory</th><th scope="col">Restarts</th><th scope="col" class="action-heading">Controls</th></tr></thead><tbody id="process-list"></tbody></table></div>
+          <p id="empty-state" class="empty-state" hidden>No allowed processes found. Check your process allowlist and PM2 daemon.</p>
+          <div class="table-footer"><span id="table-count">Loading processes…</span><span>Only approved processes are shown</span></div>
+        </section><p class="workspace-note"><span aria-hidden="true">◈</span> Every control action is authenticated and recorded.</p>
+      </section>
+    </main>
+  </div>
+  <dialog id="confirm-dialog"><form method="dialog"><p class="eyebrow">PROCESS CONTROL</p><h2 id="confirm-title">Confirm action</h2><p id="confirm-message" class="muted"></p><div class="dialog-actions"><button class="button secondary" value="cancel" autofocus>Cancel</button><button id="confirm-action" class="button primary" value="confirm">Confirm</button></div></form></dialog>
+  <template id="process-template"><tr><td><div class="process-name"></div><div class="process-id"></div></td><td><span class="status-badge"></span></td><td class="cpu-value"></td><td class="memory-value"></td><td class="restarts-value"></td><td><div class="process-actions"><button class="mini-button" data-action="restart">Restart</button><button class="mini-button" data-action="reload">Reload</button><button class="mini-button danger" data-action="stop">Stop</button></div></td></tr></template>
+</body>
+</html>
