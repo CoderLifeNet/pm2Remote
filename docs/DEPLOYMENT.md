@@ -73,7 +73,7 @@ sudo journalctl -u pm2remote -u pm2remote-root -n 100 --no-pager
 sudo stat /run/pm2remote-root/control.sock
 ```
 
-Sign in, select `dfren` or `root`, and start with `pm2 list`. Root commands require typing `root` to confirm in the interface. Read tokens cannot access the command console for either account.
+Sign in, select `dfren` or `root`, and start with `pm2 list`. Commands ask for confirmation with a button click; no text entry is required. Read tokens cannot access the command console for either account.
 
 Test new lifecycle features with disposable processes. Avoid testing `delete all`, `kill`, `resurrect`, `update`, or startup changes against production workloads. Commands may stop or replace apps and saved state.
 

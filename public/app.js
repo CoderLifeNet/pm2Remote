@@ -118,7 +118,7 @@ async function control(process, action) {
   $('confirm-title').textContent = `${label} ${process.name}?`;
   $('confirm-message').textContent = `This will ${action} PM2 process ${process.id}. ${action === 'stop' ? 'It will remain stopped until restarted.' : 'Active requests may be interrupted.'}`;
   $('confirm-action').textContent = `${label} process`;
-  const confirmed = await confirmAction(`${label} ${process.name} on ${instanceLabel()}?`, $('confirm-message').textContent, `${label} process`, action === 'delete');
+  const confirmed = await confirmAction(`${label} ${process.name} on ${instanceLabel()}?`, $('confirm-message').textContent, `${label} process`);
   if (!confirmed) { busy = false; return; }
   document.querySelectorAll('[data-action]').forEach(button => { button.disabled = true; });
   $('refresh').disabled = true;
@@ -191,21 +191,12 @@ async function loadWorkspace() {
   $('scope-note').classList.toggle('root-scope', activeInstance === 'root');
   await refresh();
 }
-async function confirmAction(title, message, buttonLabel, destructive = false) {
+async function confirmAction(title, message, buttonLabel) {
   $('confirm-title').textContent = title;
   $('confirm-message').textContent = message;
   $('confirm-action').textContent = buttonLabel;
-  const guarded = activeInstance === 'root' || destructive;
-  const phrase = activeInstance === 'root' ? 'root' : 'confirm';
-  $('confirm-guard-label').hidden = !guarded;
-  $('confirm-guard').hidden = !guarded;
-  $('confirm-guard-label').textContent = `Type ${phrase} to confirm`;
-  $('confirm-guard').value = '';
-  $('confirm-action').disabled = guarded;
-  $('confirm-guard').oninput = () => { $('confirm-action').disabled = guarded && $('confirm-guard').value !== phrase; };
   const dialog = $('confirm-dialog'); dialog.returnValue = ''; dialog.showModal();
   const result = await new Promise(resolve => dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), { once: true }));
-  $('confirm-action').disabled = false;
   return result;
 }
 function output(result, label) {
@@ -218,7 +209,7 @@ async function executeCommand(payload, label) {
   busy = true;
   const target = activeInstance;
   try {
-    if (!await confirmAction(`Run PM2 on ${instanceLabel()}?`, label, 'Run command', true)) return;
+    if (!await confirmAction(`Run PM2 on ${instanceLabel()}?`, label, 'Run command')) return;
     $('run-command').disabled = true;
     $('instance-select').disabled = true;
     $('command-result').textContent = `Running on ${instanceLabel()}…`;

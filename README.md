@@ -133,7 +133,7 @@ pm2 --help
 
 Commands and bulk actions affect **only the selected PM2 instance**. Full mode intentionally includes starting server code as that account. Protect the login and control token accordingly. Read tokens cannot run commands.
 
-For **both `dfren` and root**, install the private helper described in [the deployment guide](docs/DEPLOYMENT.md). A selector then appears at the top of the dashboard. Root commands require typing `root` into the confirmation dialog. The web service stays unprivileged; the helper listens only on a private Unix socket.
+For **both `dfren` and root**, install the private helper described in [the deployment guide](docs/DEPLOYMENT.md). A selector then appears at the top of the dashboard. Commands show the selected instance and ask for confirmation with a button click. The web service stays unprivileged; the helper listens only on a private Unix socket.
 
 The console executes PM2 directly. It is not an interactive SSH shell: no `sudo` prefix, pipelines, redirects, shell expansion, password prompts or terminal attachment. Use the instance selector for root, the dashboard for metrics, and `--nostream` for log snapshots. Commands have a 30-second deadline and return at most 128 KB of output. If a command times out, check the state before retrying; a daemon operation or deployment may continue after the client exits.
 
