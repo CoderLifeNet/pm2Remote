@@ -1,0 +1,23 @@
+[Unit]
+Description=Private root PM2 helper for pm2Remote
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=dfren
+WorkingDirectory=/root
+Environment=PATH=/opt/pm2remote/node/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/etc/pm2remote/root-broker.env
+ExecStart=/opt/pm2remote/node/bin/node /opt/pm2remote/app/src/root-broker.js
+RuntimeDirectory=pm2remote-root
+RuntimeDirectoryMode=0750
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=40
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

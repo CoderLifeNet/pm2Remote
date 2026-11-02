@@ -18,10 +18,10 @@ async function setup(t, options = {}) {
       { pm_id: 1, name: 'private', pid: -2 },
       { pm_id: 2, name: 'controller', pid: process.pid },
     ]),
-    ...Object.fromEntries(['restart', 'reload', 'stop'].map(action => [action, (id, cb) => { calls.push([action, id]); cb(null, { secret: 'hidden' }); }])),
+    ...Object.fromEntries(['restart', 'reload', 'stop', 'delete', 'reset'].map(action => [action, (id, cb) => { calls.push([action, id]); cb(null, { secret: 'hidden' }); }])),
     ...options.pm2,
   };
-  const app = createApp({ pm2, config: options.config ?? config, audit: x => logs.push(x), limit: options.limit ?? 1000 });
+  const app = createApp({ pm2, config: options.config ?? config, audit: x => logs.push(x), limit: options.limit ?? 1000, commandRunner: options.commandRunner, rootBackend: options.rootBackend });
   t.after(() => app.locals.sessionStore.stopInterval());
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -213,4 +213,86 @@ test('login identity comes from environment configuration with no fallback crede
   const result = await request('/auth/login', { token: null, method: 'POST', headers, body: JSON.stringify({ username, password }) });
   assert.equal(result.status, 200);
   assert.equal(result.body.username, username);
+});
+
+const fullConfig = () => readConfig({ ...env, PM2_MANAGEMENT_MODE: 'full', PM2_COMMAND_HOME: '/home/test-user' });
+const commandResult = { ok: true, exitCode: 0, signal: null, timedOut: false, truncated: false, stdout: 'done', stderr: '' };
+test('full mode is explicit, lists all instance processes, and advertises capabilities', async t => {
+  assert.throws(() => readConfig({ ...env, PM2_MANAGEMENT_MODE: 'unknown' }));
+  const { request } = await setup(t, { config: fullConfig() });
+  assert.deepEqual((await request('/v1/processes')).body.processes.map(p => p.id), [0, 1]);
+  const result = await request('/v1/capabilities');
+  assert.equal(result.body.fullControl, true);
+  assert.deepEqual(result.body.instances, [{ id: 'user', label: 'test-user' }]);
+  assert.equal((await request('/v1/capabilities', { token: env.PM2_READ_TOKEN })).body.fullControl, false);
+});
+test('command console is disabled in restricted mode and read tokens cannot execute it', async t => {
+  let invoked = 0;
+  const runner = async () => { invoked++; return commandResult; };
+  const restricted = await setup(t, { commandRunner: runner });
+  assert.equal((await restricted.request('/v1/pm2/command', { method: 'POST', headers: { authorization: `Bearer ${env.PM2_CONTROL_TOKEN}`, 'content-type': 'application/json' }, body: '{"args":["list"]}' })).status, 403);
+  const full = await setup(t, { config: fullConfig(), commandRunner: runner });
+  assert.equal((await full.request('/v1/pm2/command', { method: 'POST', headers: { authorization: `Bearer ${env.PM2_READ_TOKEN}`, 'content-type': 'application/json' }, body: '{"args":["list"]}' })).status, 403);
+  assert.equal(invoked, 0);
+});
+test('console accepts PM2 arguments and literal env assignments without auditing secrets', async t => {
+  const commands = [];
+  const { request, logs } = await setup(t, { config: fullConfig(), commandRunner: async (args, environment) => { commands.push({ args, environment }); return commandResult; } });
+  const headers = { authorization: `Bearer ${env.PM2_CONTROL_TOKEN}`, 'content-type': 'application/json' };
+  const response = await request('/v1/pm2/command', { method: 'POST', headers,
+    body: JSON.stringify({ command: 'APP_MODE=custom pm2 start "/srv/my app/server.js" --name example', environment: { APP_PASSWORD: 'private-fixture' } }) });
+  assert.equal(response.status, 200);
+  assert.deepEqual(commands, [{ args: ['start', '/srv/my app/server.js', '--name', 'example'], environment: { APP_MODE: 'custom', APP_PASSWORD: 'private-fixture' } }]);
+  assert.equal(JSON.stringify(logs).includes('private-fixture'), false);
+  assert.equal(logs.at(-1).action, 'start');
+});
+test('invalid console payloads, shell operators and instance environment overrides are rejected', async t => {
+  const calls = [];
+  const { request } = await setup(t, { config: fullConfig(), commandRunner: async args => { calls.push(args); return commandResult; } });
+  const headers = { authorization: `Bearer ${env.PM2_CONTROL_TOKEN}`, 'content-type': 'application/json' };
+  for (const body of [{}, { args: [] }, { args: ['list'], command: 'pm2 list' }, { command: 'pm2 list; id' }, { command: 'pm2 list | cat' },
+    { args: ['list'], environment: { PM2_HOME: '/root/.pm2' } }, { command: 'HOME=/root pm2 list' }, { args: ['list'], environment: { NODE_OPTIONS: '--require /tmp/code.js' } }, { args: ['list'], extra: true }]) {
+    assert.equal((await request('/v1/pm2/command', { method: 'POST', headers, body: JSON.stringify(body) })).status, 400);
+  }
+  assert.deepEqual(calls, []);
+});
+test('session console requests require CSRF, while valid session commands execute', async t => {
+  const calls = [];
+  const { request } = await setup(t, { config: fullConfig(), commandRunner: async args => { calls.push(args); return commandResult; } });
+  const { cookie, csrf } = await loginBrowser(request);
+  const headers = { cookie, 'content-type': 'application/json' };
+  assert.equal((await request('/v1/pm2/command', { token: null, method: 'POST', headers, body: '{"args":["list"]}' })).status, 403);
+  assert.equal((await request('/v1/pm2/command', { token: null, method: 'POST', headers: { ...headers, origin: config.publicOrigin, 'x-csrf-token': csrf }, body: '{"args":["list"]}' })).status, 200);
+  assert.deepEqual(calls, [['list']]);
+});
+test('root selection routes only to the configured private backend and rejects unknown targets', async t => {
+  const commands = [];
+  const rootConfig = readConfig({ ...env, PM2_MANAGEMENT_MODE: 'full', PM2_ROOT_SOCKET: '/run/test/control.sock', PM2_ROOT_TOKEN: 'd'.repeat(64) });
+  const { request } = await setup(t, { config: rootConfig, commandRunner: async args => { commands.push(['user', args]); return commandResult; }, rootBackend: {
+    pm2: { list: cb => cb(null, [{ pm_id: 7, name: 'root-app', pid: -7 }]) },
+    command: async args => { commands.push(['root', args]); return commandResult; },
+  } });
+  const headers = { authorization: `Bearer ${env.PM2_CONTROL_TOKEN}`, 'x-pm2-instance': 'root', 'content-type': 'application/json' };
+  assert.equal((await request('/v1/pm2/command', { method: 'POST', headers, body: '{"args":["list"]}' })).status, 200);
+  assert.deepEqual(commands, [['root', ['list']]]);
+  assert.deepEqual((await request('/v1/processes', { headers })).body.processes.map(p => p.name), ['root-app']);
+  assert.equal((await request('/v1/processes', { headers: { ...headers, 'x-pm2-instance': '__proto__' } })).status, 400);
+  assert.equal((await request('/v1/pm2/command', { method: 'POST', headers: { ...headers, authorization: `Bearer ${env.PM2_READ_TOKEN}` }, body: '{"args":["delete","all"]}' })).status, 403);
+});
+test('root access cannot be enabled by a request header or incomplete configuration', async t => {
+  assert.throws(() => readConfig({ ...env, PM2_ROOT_SOCKET: '/run/test.sock', PM2_ROOT_TOKEN: 'd'.repeat(64) }));
+  assert.throws(() => readConfig({ ...env, PM2_MANAGEMENT_MODE: 'full', PM2_ROOT_SOCKET: '/run/test.sock' }));
+  assert.throws(() => readConfig({ ...env, PM2_MANAGEMENT_MODE: 'full', PM2_ROOT_SOCKET: '/run/test.sock', PM2_ROOT_TOKEN: env.PM2_CONTROL_TOKEN }));
+  const { request } = await setup(t, { config: fullConfig() });
+  assert.equal((await request('/v1/processes', { headers: { authorization: `Bearer ${env.PM2_CONTROL_TOKEN}`, 'x-pm2-instance': 'root' } })).status, 400);
+});
+test('full mode supports delete/reset and logs with numeric scoped IDs', async t => {
+  const commands = [];
+  const { request, calls } = await setup(t, { config: fullConfig(), commandRunner: async args => { commands.push(args); return commandResult; } });
+  assert.equal((await request('/v1/processes/1/delete', { method: 'POST' })).status, 200);
+  assert.equal((await request('/v1/processes/0/reset', { method: 'POST' })).status, 200);
+  assert.deepEqual(calls, [['delete', 1], ['reset', 0]]);
+  assert.equal((await request('/v1/processes/0/logs')).status, 200);
+  assert.deepEqual(commands, [['logs', '0', '--nostream', '--lines', '100', '--raw']]);
+  assert.equal((await request('/v1/processes/0/logs', { token: env.PM2_READ_TOKEN })).status, 403);
 });

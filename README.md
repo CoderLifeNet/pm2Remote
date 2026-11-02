@@ -55,7 +55,7 @@ Setup asks for:
 
 Setup creates `.env` with your username, a salted password hash, and randomly generated API tokens and a session secret. The file is readable and writable only by its owner on Unix systems. Setup refuses to overwrite an existing `.env`.
 
-Only allowlisted process names appear in the dashboard. Do not add pm2Remote itself to that list.
+In the default restricted mode, only allowlisted process names appear in the dashboard. Do not add pm2Remote itself to that list.
 
 ## 3. Start the server
 
@@ -98,6 +98,48 @@ If the service runs on your own computer, you can open the dashboard directly wi
 Each control action asks for confirmation. Process actions can interrupt requests, so choose the intended app and ID carefully. Cluster instances have separate PM2 IDs and are controlled individually.
 
 Sessions expire after 30 minutes without activity or 8 hours total. Restarting pm2Remote signs out everyone.
+
+## Full PM2 management
+
+To manage every process in the service user's PM2 instance, add this to `.env` and restart the service:
+
+```dotenv
+PM2_MANAGEMENT_MODE=full
+# Use absolute paths appropriate to your server:
+PM2_COMMAND_HOME=/home/dfren
+PM2_CLI_PATH=/usr/local/lib/node_modules/pm2/bin/pm2
+```
+
+`PM2_CLI_PATH` is optional. Point it to your existing PM2 CLI to match the daemon version; otherwise the bundled CLI is used. Full mode shows all processes for the selected instance and enables:
+
+- **Add process**: supply an existing server script or ecosystem file, working directory, arguments, interpreter, environment variables and cluster size.
+- **More actions**: view logs, inspect process details or environment, scale a cluster, reset restart counts, or delete a process.
+- **All processes**: restart, reload, stop or delete every process in the selected instance.
+- **Save list**: save the current process list for restoration.
+- **PM2 command console**: run other non-interactive PM2 commands, with output shown below the command.
+
+Examples for the console:
+
+```text
+pm2 start /home/dfren/www/my-app/server.js --name my-app
+pm2 start /home/dfren/www/my-app/ecosystem.config.js --env production
+NODE_ENV=production pm2 restart my-app --update-env
+pm2 scale my-app 2
+pm2 logs my-app --lines 100 --nostream
+pm2 save
+pm2 resurrect
+pm2 reset my-app
+pm2 delete my-app
+pm2 --help
+```
+
+Commands and bulk actions affect **only the selected PM2 instance**. Full mode intentionally includes starting server code as that account. Protect the login and control token accordingly. Read tokens cannot run commands.
+
+For **both `dfren` and root**, install the private helper described in [the deployment guide](docs/DEPLOYMENT.md). A selector then appears at the top of the dashboard. Root commands require typing `root` into the confirmation dialog. The web service stays unprivileged; the helper listens only on a private Unix socket.
+
+The console executes PM2 directly. It is not an interactive SSH shell: no `sudo` prefix, pipelines, redirects, shell expansion, password prompts or terminal attachment. Use the instance selector for root, the dashboard for metrics, and `--nostream` for log snapshots. Commands have a 30-second deadline and return at most 128 KB of output. If a command times out, check the state before retrying; a daemon operation or deployment may continue after the client exits.
+
+For full mode, run the dashboard as a separate systemd service so `pm2 kill`, daemon updates, and bulk actions do not stop the dashboard itself. See [deployment](docs/DEPLOYMENT.md).
 
 ## Change your login or settings
 
@@ -162,8 +204,8 @@ location / {
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Forwarded-For "";
-    client_max_body_size 2k;
-    proxy_read_timeout 30s;
+    client_max_body_size 32k;
+    proxy_read_timeout 45s;
 }
 ```
 
@@ -203,7 +245,7 @@ npm run preview
 
 Open **[http://localhost:3110](http://localhost:3110)** and use the same username and password from setup. If previewing on a remote server, forward port 3110 through SSH as you did for port 3100.
 
-This mode simulates processes using up to three names from your allowlist. It never connects to PM2, and its actions affect only temporary sample data. Its API tokens and session secret are generated afresh for each preview. Stop it with Ctrl+C.
+This mode simulates both service-user and root instances, using up to three names from your allowlist for the service user. It never connects to PM2, and its actions affect only temporary sample data. Its API tokens and session secret are generated afresh for each preview. Stop it with Ctrl+C.
 
 ## Troubleshooting
 
@@ -228,4 +270,4 @@ npm audit --omit=dev
 
 Tests use a fake PM2 adapter and do not control your apps. Browser checks have covered login, a simulated restart, confirmation, and logout. Test live actions against a disposable allowlisted app before production use.
 
-This version supports one operator account and one server instance. See [the security notes](docs/SECURITY.md) for session behavior, rate limits, and deployment boundaries.
+This version supports one operator account and one dashboard service instance, optionally connected to a separate root helper. See [the security notes](docs/SECURITY.md) for session behavior, rate limits, and deployment boundaries.

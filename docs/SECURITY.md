@@ -26,7 +26,7 @@ Helmet supplies browser security headers and a Content Security Policy. Response
 
 ## PM2 access
 
-The API uses PM2's Node interface with numeric IDs. It does not execute shell commands. Only explicit app names in `PM2_ALLOWED_NAMES` may be listed or controlled. Keep every controller instance out of that list; the currently running controller PID is also excluded as a guard.
+Restricted mode uses PM2's Node interface with numeric IDs. Full mode invokes a fixed PM2 CLI using argument arrays, without shell interpolation. PM2 itself can start arbitrary server code, including shells; full-control credentials are therefore administrative credentials. In restricted mode, only explicit app names in `PM2_ALLOWED_NAMES` may be listed or controlled. Full mode deliberately removes that name restriction and grants PM2 command access for the selected account. Keep every controller instance out of that list; the currently running controller PID is also excluded as a guard.
 
 An API allowlist does not provide OS isolation: the service account can reach its whole PM2 daemon. Run as an unprivileged user, protect the account and credentials, and use a separate OS account and PM2 daemon for workloads that need stronger isolation. A PM2 namespace alone is not a security boundary.
 
@@ -39,3 +39,11 @@ Automated tests use local HTTP requests with a fake PM2 adapter. They cover bear
 Before rollout, verify HTTPS or SSH transport and exercise a disposable allowlisted app under the intended server user and PM2_HOME.
 
 References: [PM2 Node API](https://pm2.keymetrics.io/docs/usage/pm2-api/), [Express security](https://expressjs.com/advanced/best-practice-security/), [Express sessions](https://expressjs.com/en/resources/middleware/session/).
+
+## Root helper
+
+Root access is opt-in and requires full mode, an absolute PM2_ROOT_SOCKET, an independent random PM2_ROOT_TOKEN, and a root-owned helper service. The main web service runs as `dfren`. The root helper listens on a root-owned Unix socket (mode 660, group `dfren`) inside a mode-750 runtime directory; it has no TCP listener. Its configuration is root-owned mode 600. Requests independently authenticate with the helper credential. Never proxy the socket publicly.
+
+The helper accepts only process listing and PM2 command requests. All values are bounded and validated again at this boundary. It runs a fixed PM2 CLI with `/root/.pm2` and an explicit clean environment. It does not inherit dashboard secrets. Nevertheless, root PM2 can start code as root: anyone with dashboard control access can obtain root-level execution through that capability. This is the intended permission of the optional root mode, not a sandbox around root code. Local compromise of the dashboard account or its helper credential has the same consequence. Root UI confirmations reduce accidental actions; server authentication and CSRF checks enforce access.
+
+The main full-mode service retains NoNewPrivileges and ordinary file ownership restrictions but allows the account to access its own home and app files. The root helper has the privileges required for root PM2 operations. Neither service changes sudoers. Keep the dashboard outside both managed PM2 daemons so daemon commands do not stop the control interface.

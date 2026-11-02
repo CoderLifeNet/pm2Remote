@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "PM2 control API",
-    "version": "1.1.0",
-    "description": "Single-operator login dashboard and PM2 API. Same-origin sessions require CSRF and Origin on all writes. Automation uses separate bearer tokens."
+    "version": "2.0.0",
+    "description": "Login-protected PM2 dashboard. Restricted mode limits names; opt-in full mode grants command access to the selected service-user or root PM2 instance."
   },
   "servers": [
     {
@@ -76,7 +76,23 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-PM2-Instance",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "root"
+              ],
+              "default": "user"
+            },
+            "description": "Root requires configured private helper. Invalid targets are rejected."
+          }
+        ]
       }
     },
     "/v1/processes/{id}/restart": {
@@ -111,6 +127,20 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-PM2-Instance",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "root"
+              ],
+              "default": "user"
+            },
+            "description": "Root requires configured private helper. Invalid targets are rejected."
           }
         ],
         "responses": {
@@ -214,6 +244,20 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-PM2-Instance",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "root"
+              ],
+              "default": "user"
+            },
+            "description": "Root requires configured private helper. Invalid targets are rejected."
           }
         ],
         "responses": {
@@ -317,6 +361,20 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-PM2-Instance",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "root"
+              ],
+              "default": "user"
+            },
+            "description": "Root requires configured private helper. Invalid targets are rejected."
           }
         ],
         "responses": {
@@ -630,6 +688,480 @@
           }
         }
       }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "operationId": "getCapabilities",
+        "parameters": [
+          {
+            "name": "X-PM2-Instance",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "root"
+              ],
+              "default": "user"
+            },
+            "description": "Root requires configured private helper. Invalid targets are rejected."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mode, role, available instances and command capability"
+          },
+          "400": {
+            "description": "Invalid command, environment or instance"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Control access, full mode or session CSRF required"
+          },
+          "409": {
+            "description": "Another instance command is running"
+          },
+          "413": {
+            "description": "Command JSON exceeds 24 KB"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Service or helper unavailable"
+          }
+        }
+      }
+    },
+    "/v1/pm2/command": {
+      "post": {
+        "operationId": "runPm2Command",
+        "summary": "Run a PM2 command in full mode with control access",
+        "description": "Fixed CLI executable, clean environment. Root uses private helper. Deadline 30s, output 128KB. Timed-out operations may continue in daemon.",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "description": "Required for session authentication; ignored for bearer authentication.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "description": "Must match PUBLIC_ORIGIN for session authentication.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-PM2-Instance",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "root"
+              ],
+              "default": "user"
+            },
+            "description": "Root requires configured private helper. Invalid targets are rejected."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "args": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "minItems": 1,
+                    "maxItems": 128
+                  },
+                  "command": {
+                    "type": "string",
+                    "maxLength": 16384
+                  },
+                  "environment": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 4096
+                    }
+                  }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "args"
+                    ],
+                    "not": {
+                      "required": [
+                        "command"
+                      ]
+                    }
+                  },
+                  {
+                    "required": [
+                      "command"
+                    ],
+                    "not": {
+                      "required": [
+                        "args"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Inspect ok and timedOut; HTTP 200 does not guarantee command success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid command, environment or instance"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Control access, full mode or session CSRF required"
+          },
+          "409": {
+            "description": "Another instance command is running"
+          },
+          "413": {
+            "description": "Command JSON exceeds 24 KB"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Service or helper unavailable"
+          }
+        }
+      }
+    },
+    "/v1/processes/{id}/delete": {
+      "post": {
+        "operationId": "deleteProcess",
+        "summary": "Delete a process (full mode, control access)",
+        "description": "Send no request body. Numeric PM2 ID only. Success confirms PM2 callback, not application health. Do not automatically retry uncertain outcomes.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,8})$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "description": "Required for session authentication; ignored for bearer authentication.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "description": "Must match PUBLIC_ORIGIN for session authentication.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-PM2-Instance",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "root"
+              ],
+              "default": "user"
+            },
+            "description": "Root requires configured private helper. Invalid targets are rejected."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PM2 callback succeeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "id",
+                    "action"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "action": {
+                      "const": "delete"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID or nonempty body"
+          },
+          "403": {
+            "description": "Insufficient role or invalid session CSRF/Origin"
+          },
+          "404": {
+            "description": "Process absent, disallowed or controller itself"
+          },
+          "401": {
+            "description": "Invalid or missing bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "PM2 operation failed; outcome may be uncertain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/processes/{id}/reset": {
+      "post": {
+        "operationId": "resetProcess",
+        "summary": "Reset a process (full mode, control access)",
+        "description": "Send no request body. Numeric PM2 ID only. Success confirms PM2 callback, not application health. Do not automatically retry uncertain outcomes.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,8})$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "description": "Required for session authentication; ignored for bearer authentication.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "description": "Must match PUBLIC_ORIGIN for session authentication.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-PM2-Instance",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "root"
+              ],
+              "default": "user"
+            },
+            "description": "Root requires configured private helper. Invalid targets are rejected."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PM2 callback succeeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "id",
+                    "action"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "action": {
+                      "const": "reset"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID or nonempty body"
+          },
+          "403": {
+            "description": "Insufficient role or invalid session CSRF/Origin"
+          },
+          "404": {
+            "description": "Process absent, disallowed or controller itself"
+          },
+          "401": {
+            "description": "Invalid or missing bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "PM2 operation failed; outcome may be uncertain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/processes/{id}/logs": {
+      "get": {
+        "operationId": "getProcessLogs",
+        "summary": "Read last 100 log lines (full mode, control access)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,8})$"
+            }
+          },
+          {
+            "name": "X-PM2-Instance",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "root"
+              ],
+              "default": "user"
+            },
+            "description": "Root requires configured private helper. Invalid targets are rejected."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Inspect ok and timedOut; HTTP 200 does not guarantee command success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid command, environment or instance"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Control access, full mode or session CSRF required"
+          },
+          "409": {
+            "description": "Another instance command is running"
+          },
+          "413": {
+            "description": "Command JSON exceeds 24 KB"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Service or helper unavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -707,6 +1239,12 @@
               "integer",
               "null"
             ]
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
           }
         }
       },
@@ -738,6 +1276,47 @@
           "role",
           "csrfToken"
         ]
+      },
+      "CommandResult": {
+        "type": "object",
+        "required": [
+          "ok",
+          "exitCode",
+          "signal",
+          "timedOut",
+          "truncated",
+          "stdout",
+          "stderr"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "signal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timedOut": {
+            "type": "boolean"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "stdout": {
+            "type": "string"
+          },
+          "stderr": {
+            "type": "string"
+          }
+        }
       }
     }
   }

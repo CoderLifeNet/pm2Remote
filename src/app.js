@@ -1,5 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
+import { createRootBackend } from './root-client.js';
+import { createCommandRunner, parseInvocation, validateArgs, validateEnvironment } from './pm2-command.js';
 import { browserAuth } from './browser-auth.js';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
@@ -7,12 +9,13 @@ import { createHash, timingSafeEqual, randomUUID } from 'node:crypto';
 
 const digest = value => createHash('sha256').update(value).digest();
 const visible = p => ({
+  namespace: p.pm2_env?.namespace ?? 'default', mode: p.pm2_env?.exec_mode ?? 'fork_mode',
   id: p.pm_id, name: p.name, status: p.pm2_env?.status ?? 'unknown',
   cpu: p.monit?.cpu ?? null, memory: p.monit?.memory ?? null,
   startedAt: p.pm2_env?.pm_uptime ?? null, restarts: p.pm2_env?.restart_time ?? null,
 });
 
-export function createApp({ pm2, config, audit = entry => console.log(JSON.stringify(entry)), limit = 60 }) {
+export function createApp({ pm2, config, audit = entry => console.log(JSON.stringify(entry)), limit = 60, commandRunner, rootBackend }) {
   const app = express();
   const readHash = digest(config.readToken);
   const controlHash = digest(config.controlToken);
@@ -27,7 +30,7 @@ export function createApp({ pm2, config, audit = entry => console.log(JSON.strin
       time: new Date().toISOString(), requestId: req.requestId,
       method: req.method, route: req.route?.path ?? 'unmatched',
       processId: req.params?.id ?? null, role: req.role ?? 'anonymous',
-      status: res.statusCode, peer: req.ip,
+      status: res.statusCode, peer: req.ip, action: req.auditAction ?? null, commandExitCode: req.commandExitCode ?? null, instance: req.instance ?? 'user',
     }));
     next();
   });
@@ -61,31 +64,78 @@ export function createApp({ pm2, config, audit = entry => console.log(JSON.strin
     req.role = isControl ? 'control' : 'read';
     next();
   });
-  const call = (method, ...args) => new Promise((resolve, reject) => {
-    pm2[method](...args, (err, result) => err ? reject(err) : resolve(result));
+  const call = (req, method, ...args) => new Promise((resolve, reject) => {
+    req.backend.pm2[method](...args, (err, result) => err ? reject(err) : resolve(result));
   });
-  const allowed = p => config.allowedNames.has(p.name) && p.pid !== process.pid;
+  const fullControl = config.managementMode === 'full';
+  const runCommand = commandRunner ?? createCommandRunner(config);
+  const backends = { user: { pm2, command: runCommand } };
+  if (fullControl && config.rootSocket) backends.root = rootBackend ?? createRootBackend(config);
+  app.use('/v1', (req, res, next) => {
+    req.instance = req.get('x-pm2-instance') ?? 'user';
+    if (!Object.hasOwn(backends, req.instance)) return res.status(400).json({ error: 'invalid_instance' });
+    req.backend = backends[req.instance];
+    next();
+  });
+  const commandBusy = new Set();
+  const allowed = p => (fullControl || config.allowedNames.has(p.name)) && p.pid !== process.pid;
+  const requireFullControl = (req, res, next) => {
+    if (req.role !== 'control') return res.status(403).json({ error: 'forbidden' });
+    if (!fullControl) return res.status(403).json({ error: 'full_control_disabled' });
+    next();
+  };
+  app.get('/v1/capabilities', (req, res) => {
+    res.json({ simulated: Boolean(config.simulated), managementMode: config.managementMode ?? 'restricted', role: req.role,
+      fullControl: fullControl && req.role === 'control', scope: req.instance === 'root' ? '/root' : (config.commandHome ?? 'current service account'),
+      instances: [{ id: 'user', label: config.commandHome?.split('/').pop() ?? 'Service user' }, ...(backends.root ? [{ id: 'root', label: 'root' }] : [])] });
+  });
+  app.post('/v1/pm2/command', requireFullControl, express.json({ limit: '24kb', strict: true }), async (req, res) => {
+    if (!req.body || (Object.hasOwn(req.body, 'args') === Object.hasOwn(req.body, 'command')) ||
+        Object.keys(req.body).some(key => !['args', 'command', 'environment'].includes(key))) {
+      return res.status(400).json({ error: 'invalid_command' });
+    }
+    const invocation = Object.hasOwn(req.body, 'args') ? { args: validateArgs(req.body.args), environment: {} } : parseInvocation(req.body.command);
+    const { args } = invocation;
+    const environment = validateEnvironment({ ...invocation.environment, ...validateEnvironment(req.body.environment) });
+    req.auditAction = args[0];
+    if (commandBusy.has(req.instance)) return res.status(409).json({ error: 'command_in_progress' });
+    commandBusy.add(req.instance);
+    try {
+      const result = await req.backend.command(args, environment);
+      req.commandExitCode = result.exitCode;
+      res.json(result);
+    } finally { commandBusy.delete(req.instance); }
+  });
+  app.get('/v1/processes/:id/logs', requireFullControl, async (req, res) => {
+    if (!/^(0|[1-9]\d{0,8})$/.test(req.params.id)) return res.status(400).json({ error: 'invalid_process_or_action' });
+    const target = (await call(req, 'list')).find(p => p.pm_id === Number(req.params.id) && allowed(p));
+    if (!target) return res.status(404).json({ error: 'process_not_found' });
+    // Snapshot avoids keeping a streaming CLI attached to a web request.
+    res.json(await req.backend.command(['logs', req.params.id, '--nostream', '--lines', '100', '--raw']));
+  });
+
   app.get('/v1/processes', async (req, res) => {
-    const processes = await call('list');
+    const processes = await call(req, 'list');
     res.json({ processes: processes.filter(allowed).map(visible) });
   });
   app.post('/v1/processes/:id/:action', async (req, res) => {
     if (req.role !== 'control') return res.status(403).json({ error: 'forbidden' });
     const { id, action } = req.params;
-    if (!/^(0|[1-9]\d{0,8})$/.test(id) || !['restart', 'reload', 'stop'].includes(action)) {
+    if (!/^(0|[1-9]\d{0,8})$/.test(id) || !['restart', 'reload', 'stop', ...(fullControl ? ['delete', 'reset'] : [])].includes(action)) {
       return res.status(400).json({ error: 'invalid_process_or_action' });
     }
     if (req.get('transfer-encoding') || (req.get('content-length') && req.get('content-length') !== '0')) {
       return res.status(400).json({ error: 'body_not_allowed' });
     }
-    const target = (await call('list')).find(p => p.pm_id === Number(id) && allowed(p));
+    const target = (await call(req, 'list')).find(p => p.pm_id === Number(id) && allowed(p));
     if (!target) return res.status(404).json({ error: 'process_not_found' });
     // Numeric IDs avoid PM2's special all, name, namespace and path selectors.
-    await call(action, Number(id));
+    await call(req, action, Number(id));
     res.json({ ok: true, id: Number(id), action });
   });
   app.use((req, res) => res.status(404).json({ error: 'not_found' }));
   app.use((err, req, res, next) => {
+    if (err.status === 400 && err.code === 'invalid_command') return res.status(400).json({ error: 'invalid_command' });
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'body_too_large' });
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'invalid_json' });
     res.status(503).json({ error: 'service_unavailable', requestId: req.requestId });

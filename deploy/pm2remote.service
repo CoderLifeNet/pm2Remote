@@ -1,0 +1,23 @@
+[Unit]
+Description=pm2Remote dashboard and control API
+After=network.target pm2-dfren.service pm2remote-root.service
+Wants=pm2-dfren.service pm2remote-root.service
+
+[Service]
+Type=simple
+User=dfren
+Group=dfren
+WorkingDirectory=/opt/pm2remote/app
+Environment=PATH=/opt/pm2remote/node/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PM2_HOME=/home/dfren/.pm2
+ExecStart=/opt/pm2remote/node/bin/node --env-file=/opt/pm2remote/app/.env /opt/pm2remote/app/src/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=40
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
