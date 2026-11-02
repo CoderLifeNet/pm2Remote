@@ -17,7 +17,9 @@ test('subprocess environment is explicit and contains no dashboard login secrets
   const env = commandEnvironment({ commandHome: '/home/operator', pm2Home: '/home/operator/.pm2' });
   assert.equal(env.HOME, '/home/operator');
   assert.equal(env.PM2_HOME, '/home/operator/.pm2');
-  assert.deepEqual(Object.keys(env).sort(), ['HOME', 'LANG', 'LOGNAME', 'NO_COLOR', 'PATH', 'PM2_HOME', 'PM2_SILENT', 'TERM', 'USER'].sort());
+  assert.equal(env.PM2_SILENT, undefined);
+  assert.equal(commandEnvironment({ silent: true }).PM2_SILENT, 'true');
+  assert.deepEqual(Object.keys(env).sort(), ['HOME', 'LANG', 'LOGNAME', 'NO_COLOR', 'PATH', 'PM2_HOME', 'TERM', 'USER'].sort());
 });
 function childFixture() {
   const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough();

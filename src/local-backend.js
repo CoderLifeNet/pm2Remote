@@ -10,7 +10,7 @@ export const processSummary = p => ({
 
 export function createLocalBackend(config) {
   const command = createCommandRunner(config);
-  const listCommand = createCommandRunner(config, { maxBytes: 4 * 1024 * 1024 });
+  const listCommand = createCommandRunner({ ...config, silent: true }, { maxBytes: 4 * 1024 * 1024 });
   const pm2 = { list: callback => {
     listCommand(['jlist']).then(result => {
       if (!result.ok || result.truncated) throw new Error('PM2 list failed.');

@@ -62,7 +62,7 @@ export function commandEnvironment(config) {
   return {
     HOME: home, USER: config.commandUser ?? process.env.USER ?? '', LOGNAME: config.commandUser ?? process.env.USER ?? '',
     PATH: `${path.dirname(process.execPath)}:/usr/local/bin:/usr/bin:/bin`,
-    LANG: 'C.UTF-8', TERM: 'dumb', NO_COLOR: '1', PM2_SILENT: 'true',
+    LANG: 'C.UTF-8', TERM: 'dumb', NO_COLOR: '1', ...(config.silent ? { PM2_SILENT: 'true' } : {}),
     PM2_HOME: config.pm2Home ?? path.join(home, '.pm2'),
   };
 }
