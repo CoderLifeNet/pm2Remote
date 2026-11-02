@@ -6,3 +6,20 @@ node_modules/
 *.key
 .DS_Store
 coverage/
+
+# Generated previews, test reports and caches
+artifacts/
+test-results/
+playwright-report/
+.nyc_output/
+.cache/
+.npm/
+
+# Local PM2 state and temporary runtime files
+.pm2/
+dump.pm2
+dump.pm2.bak
+*.pid
+*.pid.lock
+tmp/
+temp/

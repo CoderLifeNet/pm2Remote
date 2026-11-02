@@ -2,8 +2,6 @@
 
 Manage your PM2 apps from a browser or API. Sign in, see which processes are running, check CPU and memory use, and restart, reload, or stop approved apps.
 
-![Dashboard preview](artifacts/dashboard-preview.png)
-
 **You choose the login credentials.** The username and password hash live in your private `.env` file. There is no default password, and `.env` is excluded from Git.
 
 ## What you need
